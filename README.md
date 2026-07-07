@@ -5,6 +5,8 @@ standardized `QUERY` — safe/idempotent like GET, carries a body like POST —
 but existing WAF, cache, and SIEM rulesets were mostly written before it
 existed. This repo closes that gap: it inspects QUERY request bodies the
 same way mature tooling already inspects POST, and adds a behavioral layer
+for payload shapes that don't match a known signature yet.
+
 This extends the signature-tuning methodology from
 
 [Detection-Content](https://github.com/Jaysolex/Detection-Content) to a
