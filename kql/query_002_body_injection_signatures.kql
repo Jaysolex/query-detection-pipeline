@@ -1,0 +1,23 @@
+// Title: Injection Signatures in HTTP QUERY Request Body
+// Sigma source: query_002_body_injection_signatures.yml
+// Applies conventional SQLi/NoSQLi/command-injection/traversal body
+// signatures to the QUERY method specifically. Run this against the
+// DECODED body field if you're forwarding normalize.py output into
+// a custom table (recommended) rather than raw AppGatewayAccessLog,
+// since encoded payloads won't match otherwise.
+
+let sqli_patterns = dynamic(["union select", " or 1=1", "drop table", "--", "' or '1'='1"]);
+let nosqli_patterns = dynamic(["$where", "$regex", "$gt", "$ne"]);
+let cmdi_patterns = dynamic(["; cat ", "&& whoami", "| nc ", "`"]);
+let traversal_patterns = dynamic(["../", "..%2f", "/etc/passwd"]);
+//
+QueryNormalizerEvents_CL   // custom table fed by normalize.py's .to_dict() output
+| where method_s == "QUERY"
+| extend body = tolower(decoded_body_s)
+| extend sqli_hit = array_length(set_intersection(sqli_patterns, extract_all(@"union select| or 1=1|drop table|--|' or '1'='1", body)))
+| extend nosqli_hit = body has_any (nosqli_patterns)
+| extend cmdi_hit = body has_any (cmdi_patterns)
+| extend traversal_hit = body has_any (traversal_patterns)
+| where sqli_hit > 0 or nosqli_hit or cmdi_hit or traversal_hit
+| project TimeGenerated, endpoint_s, client_ip_s, body, sqli_hit, nosqli_hit, cmdi_hit, traversal_hit, risk_score_d
+| extend AlertName = "QUERY_Body_Injection_Signature", Severity = "High"

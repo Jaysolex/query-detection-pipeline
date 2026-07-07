@@ -1,0 +1,129 @@
+<!--
+  Wazuh custom rules: HTTP QUERY Method Detection (RFC 10008)
+  Rule ID range: 100096-100099 (continuing from soar-ir-pipeline's
+  pb01-pb10 range, which ends at 100095)
+
+  Source Sigma rules:
+    - query_001_missing_content_type.yml  -> rule 100096
+    - query_002_body_injection_signatures.yml -> rules 100097-100098
+    - query_003_anomalous_body_shape.yml -> rule 100099
+
+  Prerequisite: your web server/gateway access log must be ingested by
+  Wazuh (via a <localfile> log source or Filebeat->Wazuh pipeline) with
+  the QUERY method, Content-Type, and request body visible as decoded
+  text. If you're running normalize.py as a pre-processing step, point
+  Wazuh's localfile at whatever JSON log normalize.py writes instead of
+  raw web server logs, so rules 100097-100099 can match the DECODED body
+  rather than raw/encoded traffic.
+
+  Deploy:
+    cp query_rules.xml /var/ossec/etc/rules/
+    /var/ossec/bin/wazuh-control restart
+-->
+
+<group name="query_method,rfc10008,web,attack,">
+
+  <!--
+    100096 - Protocol compliance: missing/invalid Content-Type on QUERY
+    Sigma source: query_001_missing_content_type.yml
+    Low severity: this is a compliance signal, not an attack signal on
+    its own, but repeated hits from the same source are worth watching.
+  -->
+  <rule id="100200" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="http_method">^QUERY$</field>
+    <field name="content_type" type="pcre2">^$|text/plain|multipart/form-data</field>
+    <description>HTTP QUERY request with missing or non-compliant Content-Type (RFC 10008)</description>
+    <mitre>
+      <id>T1595</id>
+    </mitre>
+    <group>query_protocol_compliance,</group>
+  </rule>
+
+  <!--
+    100201 - High-confidence injection signature (SQLi/NoSQLi/cmdi/traversal)
+    Sigma source: query_002_body_injection_signatures.yml
+
+    FIXED after live lab testing: originally matched decoded_body directly
+    via regex, which missed base64/hex/URL-encoded attack payloads because
+    decoded_body only reflects a TOP-LEVEL decode of the whole raw body,
+    not the per-field decoded values normalize.py computes internally.
+    A base64-wrapped path-traversal payload correctly populated
+    matches.traversal and risk_score=60 in normalize.py's own output, but
+    Wazuh's regex against decoded_body never saw the decoded plaintext and
+    silently failed to fire. Confirmed via live dashboard testing:
+    SQLi/NoSQLi (plain-text payloads) fired correctly; base64-encoded
+    traversal did not, until this fix.
+
+    Fix: match on risk_score (encoding-agnostic, computed once by
+    normalize.py after all decoding is already done) instead of
+    duplicating signature-matching logic in Wazuh regex against a field
+    that may not contain the decoded content.
+  -->
+  <rule id="100201" level="10">
+    <decoded_as>json</decoded_as>
+    <field name="http_method">^QUERY$</field>
+    <field name="risk_score" type="pcre2">^([6-9][0-9]|100)$</field>
+    <description>High-confidence injection signature detected in HTTP QUERY body (risk_score: $(risk_score)): $(decoded_body)</description>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+    <group>query_injection,sqli,nosqli,cmdi,traversal,</group>
+  </rule>
+
+  <!--
+    100202 - Medium-confidence injection signature (single-pattern match,
+    e.g. a lone NoSQLi operator or a single traversal token)
+    Sigma source: query_002_body_injection_signatures.yml
+
+    Same fix rationale as 100201: keys off risk_score rather than
+    re-scanning decoded_body text, so encoding does not blind this rule.
+    Threshold is lower than 100201 to catch single-signature-category
+    hits (e.g. risk_score 30-59) at a correspondingly lower severity.
+  -->
+  <rule id="100202" level="7">
+    <decoded_as>json</decoded_as>
+    <field name="http_method">^QUERY$</field>
+    <field name="risk_score" type="pcre2">^(3[0-9]|4[0-9]|5[0-9])$</field>
+    <description>Medium-confidence injection signature detected in HTTP QUERY body (risk_score: $(risk_score)): $(decoded_body)</description>
+    <mitre>
+      <id>T1059</id>
+      <id>T1083</id>
+    </mitre>
+    <group>query_injection,cmdi,traversal,</group>
+  </rule>
+
+  <!--
+    100099 - Anomalous QUERY body shape (behavioral, requires normalize.py output)
+    Sigma source: query_003_anomalous_body_shape.yml
+    Medium severity: no signature match, but the shape (size/depth/z-score)
+    deviates sharply from the per-endpoint baseline. This is the rule that
+    catches payloads with no matching string signature yet.
+
+    Requires normalize.py to emit z_score and json_max_depth as fields in
+    whatever log line Wazuh is reading (e.g. write its .to_dict() output
+    as a JSON log line and point a <localfile> decoder at it).
+  -->
+  <rule id="100203" level="6">
+    <decoded_as>json</decoded_as>
+    <field name="http_method">^QUERY$</field>
+    <field name="z_score" type="pcre2">^([4-9]\.\d+|[1-9]\d+\.\d+)$</field>
+    <description>Anomalous HTTP QUERY body shape detected (z-score above baseline threshold)</description>
+    <mitre>
+      <id>T1595.002</id>
+    </mitre>
+    <group>query_behavioral,anomaly,</group>
+  </rule>
+
+  <rule id="100204" level="6">
+    <decoded_as>json</decoded_as>
+    <field name="http_method">^QUERY$</field>
+    <field name="json_max_depth" type="pcre2">^(1[3-9]|[2-9]\d+)$</field>
+    <description>Anomalous HTTP QUERY body nesting depth detected (exceeds 12 levels)</description>
+    <mitre>
+      <id>T1595.002</id>
+    </mitre>
+    <group>query_behavioral,anomaly,</group>
+  </rule>
+
+</group>

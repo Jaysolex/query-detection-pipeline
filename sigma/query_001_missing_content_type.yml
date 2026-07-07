@@ -1,0 +1,32 @@
+title: HTTP QUERY Request Missing or Invalid Content-Type
+id: 8f3a1c2e-4b6d-4e91-9a2f-1d7c8e5b9a01
+status: experimental
+description: |
+    RFC 10008 requires a QUERY request to carry a Content-Type that the server
+    understands; a request with a missing or mismatched Content-Type is
+    non-compliant and should return 400/415. Repeated non-compliant QUERY
+    requests against the same endpoint suggest scanning, fuzzing, or a client
+    testing WAF/gateway coverage for the new method rather than a normal client.
+references:
+    - https://www.rfc-editor.org/info/rfc10008
+author: Solomon James
+date: 2026/07/05
+tags:
+    - attack.reconnaissance
+    - attack.t1595
+logsource:
+    category: webserver
+    product: nginx
+detection:
+    selection_method:
+        c-method: 'QUERY'
+    selection_bad_type:
+        - cs-content-type: ''
+        - cs-content-type|contains:
+            - 'text/plain'
+            - 'multipart/form-data'
+    condition: selection_method and selection_bad_type
+falsepositives:
+    - Early-adopter internal clients still being tuned to send correct Accept-Query-negotiated types
+    - Load balancer health checks that reuse the QUERY verb without a body
+level: low

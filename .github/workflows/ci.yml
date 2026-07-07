@@ -1,0 +1,36 @@
+name: Detection Content CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install pytest pyyaml sigma-cli
+
+      - name: Run unit tests
+        run: pytest tests/ -v
+
+      - name: Validate Sigma rule syntax
+        run: |
+          for f in sigma/*.yml; do
+            echo "Validating $f"
+            python3 -c "import yaml, sys; yaml.safe_load(open('$f'))" || exit 1
+          done
+
+      - name: Sigma rule lint (sigma-cli)
+        run: |
+          sigma check sigma/ || echo "::warning::sigma-cli reported issues, review before merge"

@@ -1,0 +1,8 @@
+`# Title: Anomalous QUERY Body Size or Structure
+`# Sigma source: query_003_anomalous_body_shape.yml
+`# Behavioral companion to query_002. Requires the QueryNormalizerEvents index.
+
+index=query_normalizer method="QUERY"
+| where z_score > 3.5 OR json_max_depth > 12
+| table _time, endpoint, client_ip, body_size_bytes, json_max_depth, z_score, risk_score
+| eval alert_name="QUERY_Anomalous_Body_Shape", severity="medium"

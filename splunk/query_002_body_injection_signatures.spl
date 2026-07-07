@@ -1,0 +1,14 @@
+`# Title: Injection Signatures in HTTP QUERY Request Body
+`# Sigma source: query_002_body_injection_signatures.yml
+`# Run against the QueryNormalizerEvents index fed by normalize.py's
+`# .to_dict() output so encoded payloads are already decoded/flattened.
+
+index=query_normalizer method="QUERY"
+| eval body=lower(decoded_body)
+| eval sqli_hit=if(match(body, "union select| or 1=1|drop table|--|' or '1'='1"), 1, 0)
+| eval nosqli_hit=if(match(body, "\$where|\$regex|\$gt|\$ne"), 1, 0)
+| eval cmdi_hit=if(match(body, "; cat |&& whoami|\| nc |`"), 1, 0)
+| eval traversal_hit=if(match(body, "\.\./|\.\.%2f|/etc/passwd"), 1, 0)
+| where sqli_hit=1 OR nosqli_hit=1 OR cmdi_hit=1 OR traversal_hit=1
+| table _time, endpoint, client_ip, body, sqli_hit, nosqli_hit, cmdi_hit, traversal_hit, risk_score
+| eval alert_name="QUERY_Body_Injection_Signature", severity="high"

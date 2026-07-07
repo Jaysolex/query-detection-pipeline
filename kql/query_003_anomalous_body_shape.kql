@@ -1,0 +1,11 @@
+// Title: Anomalous QUERY Body Size or Structure
+// Sigma source: query_003_anomalous_body_shape.yml
+// Behavioral companion to query_002. Flags QUERY requests whose body
+// size / JSON depth deviates sharply from the per-endpoint baseline
+// computed by normalize.py. Requires the same custom table as query_002.
+
+QueryNormalizerEvents_CL
+| where method_s == "QUERY"
+| where z_score_d > 3.5 or json_max_depth_d > 12
+| project TimeGenerated, endpoint_s, client_ip_s, body_size_bytes_d, json_max_depth_d, z_score_d, risk_score_d
+| extend AlertName = "QUERY_Anomalous_Body_Shape", Severity = "Medium"

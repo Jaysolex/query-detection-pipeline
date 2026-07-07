@@ -1,0 +1,124 @@
+{
+  "id": "pb11-query-method-detection-v1",
+  "name": "PB-11 | HTTP QUERY Method Injection & Anomaly Response",
+  "description": "Production playbook. Ingests Wazuh alerts for rules 100200-100204 (HTTP QUERY method / RFC 10008 detections) via webhook. Extracts source IP and endpoint artifacts, enriches via AbuseIPDB, applies the composite risk_score already computed by normalize.py at detection time, then routes to automated containment or analyst escalation based on threat score threshold. Extends the signature-tuning methodology from Detection-Content to a protocol with no prior public detection content.",
+  "tags": ["query-method", "rfc10008", "pb11", "injection", "detection-engineering"],
+  "trigger": {
+    "type": "webhook",
+    "id": "webhook_prod_query_11",
+    "description": "Listens for JSON payloads pushed by Wazuh ossec.conf integration block on rule IDs 100201, 100202, 100203, 100204 (group: query_method,rfc10008). Rule 100200 (missing Content-Type) is intentionally excluded - it is a protocol-compliance signal, not an attack signal, and is logged in Wazuh but not routed here."
+  },
+  "variables": {
+    "ABUSEIPDB_API_KEY": "{{ secrets.ABUSEIPDB_API_KEY }}",
+    "THEHIVE_API_KEY": "{{ secrets.THEHIVE_API_KEY }}",
+    "THEHIVE_URL": "{{ secrets.THEHIVE_URL }}",
+    "SLACK_WEBHOOK_URL": "{{ secrets.SLACK_WEBHOOK_URL }}",
+    "AUTO_CONTAIN_THRESHOLD": 75,
+    "ANALYST_QUEUE_THRESHOLD": 40
+  },
+  "nodes": [
+    {
+      "id": "node_01_webhook",
+      "name": "Webhook Trigger",
+      "type": "trigger",
+      "description": "Entry point. Receives the JSON payload emitted by normalize.py's analyze_query_body().to_dict(), forwarded through Wazuh. All downstream nodes reference this payload via $exec.",
+      "output_schema": {
+        "rule_id": "string",
+        "timestamp": "string",
+        "endpoint": "string",
+        "source_ip": "string",
+        "decoded_body": "string",
+        "risk_score": "integer",
+        "z_score": "float|null",
+        "json_max_depth": "integer",
+        "matches": "object"
+      }
+    },
+    {
+      "id": "node_02_filter_rule_id",
+      "name": "Filter: Actionable Rule IDs",
+      "type": "condition",
+      "description": "Passes only rule_id in [100201, 100202, 100203, 100204]. Rule 100200 (protocol compliance) is filtered out here as a defense-in-depth check, in addition to not being wired to the Wazuh integration block in the first place.",
+      "condition": "$exec.rule_id in ['100201', '100202', '100203', '100204']"
+    },
+    {
+      "id": "node_03_enrich_source_ip",
+      "name": "Enrich Source IP",
+      "app": "abuseipdb",
+      "type": "action",
+      "description": "Checks $exec.source_ip against AbuseIPDB. Matches the enrichment pattern already used in PB-01/02/05/06/08.",
+      "input": {
+        "ip": "$exec.source_ip",
+        "api_key": "$ABUSEIPDB_API_KEY"
+      },
+      "output_schema": {
+        "abuse_confidence_score": "integer",
+        "total_reports": "integer",
+        "country_code": "string",
+        "is_tor": "boolean"
+      }
+    },
+    {
+      "id": "node_04_routing_decision",
+      "name": "Apply Composite Score Routing",
+      "type": "condition",
+      "description": "risk_score was already computed by normalize.py at detection time (see src/normalize.py compute_risk_score()). This node applies the threshold routing only - it does not recompute the score. AbuseIPDB's abuse_confidence_score from node_03 is available as supplementary context in the case notes but does not alter this routing decision, since normalize.py's score is payload-based and more specific to this attack surface than generic IP reputation.",
+      "branches": {
+        "auto_contain": "$exec.risk_score >= $AUTO_CONTAIN_THRESHOLD",
+        "analyst_queue": "$exec.risk_score >= $ANALYST_QUEUE_THRESHOLD and $exec.risk_score < $AUTO_CONTAIN_THRESHOLD",
+        "log_only": "$exec.risk_score < $ANALYST_QUEUE_THRESHOLD"
+      }
+    },
+    {
+      "id": "node_05a_block_source_ip",
+      "name": "Block Source IP",
+      "type": "action",
+      "description": "Fires only on the auto_contain branch. App target is a placeholder pending your actual containment mechanism (Wazuh active-response script vs. firewall/WAF API) - matches PB-01/PB-02's auto-contain pattern structurally, but the specific app node needs to be swapped for whatever you have wired in your Shuffle instance.",
+      "condition": "auto_contain",
+      "app": "PLACEHOLDER_matches_your_PB01_PB02_containment_app",
+      "input": {
+        "ip": "$exec.source_ip",
+        "reason": "QUERY method attack detected - rule $exec.rule_id, score $exec.risk_score"
+      }
+    },
+    {
+      "id": "node_05b_create_thehive_case",
+      "name": "Create TheHive Case",
+      "app": "thehive",
+      "type": "action",
+      "description": "Fires on auto_contain OR analyst_queue branches. Severity mapped from risk_score. Decoded body excerpt is truncated to 200 chars to avoid duplicating full raw payloads into TheHive - the complete body remains in Wazuh's alert store.",
+      "condition": "auto_contain or analyst_queue",
+      "input": {
+        "title": "QUERY Method Alert - $exec.endpoint - Score $exec.risk_score",
+        "severity": "auto_contain ? 3 : 2",
+        "tlp": "auto_contain ? 'CONFIDENTIAL' : 'AMBER'",
+        "tags": ["rfc10008", "query-method", "$exec.matches.keys()"],
+        "description": "Wazuh rule $exec.rule_id fired on $exec.source_ip against $exec.endpoint. AbuseIPDB confidence: $node_03_enrich_source_ip.abuse_confidence_score. Decoded body excerpt (first 200 chars): $exec.decoded_body[:200]",
+        "api_key": "$THEHIVE_API_KEY",
+        "url": "$THEHIVE_URL"
+      }
+    },
+    {
+      "id": "node_05c_notify_slack",
+      "name": "Notify Slack",
+      "app": "slack",
+      "type": "action",
+      "description": "Channel routing mirrors PB-01/PB-09 convention: critical channel for auto-contain, general alerts channel otherwise.",
+      "condition": "analyst_queue or auto_contain",
+      "input": {
+        "webhook_url": "$SLACK_WEBHOOK_URL",
+        "channel": "auto_contain ? '#soc-critical' : '#soc-alerts'",
+        "message": "QUERY method alert: rule $exec.rule_id, score $exec.risk_score, endpoint $exec.endpoint, source $exec.source_ip"
+      }
+    }
+  ],
+  "edges": [
+    {"from": "node_01_webhook", "to": "node_02_filter_rule_id"},
+    {"from": "node_02_filter_rule_id", "to": "node_03_enrich_source_ip", "condition": "pass"},
+    {"from": "node_03_enrich_source_ip", "to": "node_04_routing_decision"},
+    {"from": "node_04_routing_decision", "to": "node_05a_block_source_ip", "condition": "auto_contain"},
+    {"from": "node_04_routing_decision", "to": "node_05b_create_thehive_case", "condition": "auto_contain_or_analyst_queue"},
+    {"from": "node_05b_create_thehive_case", "to": "node_05c_notify_slack"}
+  ],
+  "IMPLEMENTATION_NOTE": "This matches pb01_phishing_playbook.json's exact schema (id/name/description/tags/trigger/variables/nodes/edges structure, $exec reference pattern, {{ secrets.X }} variable convention). One node (node_05a) still has a placeholder app - swap it for whatever containment mechanism PB-01/PB-02 actually use in your Shuffle instance, since that wasn't visible in the 40-line excerpt provided. Everything else should import cleanly against your existing app configuration (abuseipdb, thehive, slack) since those app names match what's already referenced in pb01."
+}

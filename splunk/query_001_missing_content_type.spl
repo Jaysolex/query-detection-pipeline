@@ -1,0 +1,9 @@
+`# Title: HTTP QUERY Request Missing or Invalid Content-Type
+`# Sigma source: query_001_missing_content_type.yml
+`# Adjust sourcetype to match your web server logs (nginx, IIS, Envoy access log, etc.)
+
+index=web_logs sourcetype=nginx:access c_method="QUERY"
+| eval bad_content_type=if(isnull(cs_content_type) OR cs_content_type="" OR match(cs_content_type, "text/plain|multipart/form-data"), 1, 0)
+| where bad_content_type=1
+| table _time, c_ip, c_method, cs_content_type, cs_uri, sc_status
+| eval alert_name="QUERY_Missing_Or_Invalid_ContentType", severity="low"

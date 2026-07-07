@@ -1,0 +1,35 @@
+title: Anomalous QUERY Body Size or Structure
+id: 5b1e8f24-9c7d-4a02-8e6b-3d1f7a4c9e28
+status: experimental
+description: |
+    Behavioral companion to the signature rules. Flags QUERY requests whose
+    body size, JSON nesting depth, or field cardinality deviates sharply
+    from the per-endpoint rolling baseline maintained by the normalization
+    service. Designed to catch fuzzing and novel payload structures that
+    have no matching signature yet, rather than known-bad strings.
+references:
+    - https://www.rfc-editor.org/info/rfc10008
+author: Solomon James
+date: 2026/07/05
+tags:
+    - attack.discovery
+    - attack.t1595.002
+logsource:
+    category: application
+    product: query-normalizer
+    definition: |
+        Requires events emitted by src/normalize.py, which computes
+        body_size_bytes, json_max_depth, field_count, and a z_score
+        against a 30-day rolling per-endpoint baseline before this rule runs.
+detection:
+    selection_method:
+        method: 'QUERY'
+    selection_anomaly:
+        z_score|gt: 3.5
+    selection_depth:
+        json_max_depth|gt: 12
+    condition: selection_method and (selection_anomaly or selection_depth)
+falsepositives:
+    - Legitimate bulk-export or reporting clients that occasionally submit large, deeply nested filter objects
+    - New endpoint with insufficient baseline history (fewer than 30 days of traffic) producing unstable z-scores
+level: medium

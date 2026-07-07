@@ -1,0 +1,54 @@
+title: Injection Signatures in HTTP QUERY Request Body
+id: 2c9d7e10-6a3f-4b8c-b1e5-0f4a9d2c8b17
+status: experimental
+description: |
+    QUERY carries a request body like POST but is often still routed by
+    legacy WAF/IDS rulesets that only pattern-match bodies on POST/PUT.
+    This rule applies conventional SQLi/NoSQLi/command-injection body
+    signatures to the QUERY method specifically, closing that coverage gap
+    for RFC 10008 traffic. Intended to run against the flattened/decoded
+    body produced by the normalization service (see src/normalize.py) so
+    that base64/hex/url-encoded payloads are also caught.
+references:
+    - https://www.rfc-editor.org/info/rfc10008
+author: Solomon James
+date: 2026/07/05
+tags:
+    - attack.initial_access
+    - attack.t1190
+    - attack.t1059
+logsource:
+    category: webserver
+    product: nginx
+detection:
+    selection_method:
+        c-method: 'QUERY'
+    selection_sqli:
+        cs-body|contains:
+            - 'UNION SELECT'
+            - ' OR 1=1'
+            - 'DROP TABLE'
+            - '--+'
+            - "' OR '1'='1"
+    selection_nosqli:
+        cs-body|contains:
+            - '$where'
+            - '$regex'
+            - '$gt'
+            - '$ne'
+    selection_cmdi:
+        cs-body|contains:
+            - '; cat '
+            - '&& whoami'
+            - '| nc '
+            - '`id`'
+    selection_traversal:
+        cs-body|contains:
+            - '../'
+            - '..%2f'
+            - '/etc/passwd'
+    condition: selection_method and 1 of selection_*
+falsepositives:
+    - Legitimate analytics/BI QUERY endpoints that accept literal SQL fragments as part of their query language (e.g. a reporting API where clients intentionally submit SQL-like filter syntax)
+    - Security scanners and pentest tooling authorized against the same environment
+level: high

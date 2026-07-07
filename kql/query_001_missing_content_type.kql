@@ -1,0 +1,16 @@
+// Title: HTTP QUERY Request Missing or Invalid Content-Type
+// Sigma source: query_001_missing_content_type.yml
+// RFC 10008 requires QUERY requests to carry a Content-Type the server
+// understands. Non-compliant requests suggest scanning/fuzzing or a
+// client probing WAF/gateway coverage for the new method.
+//
+// Data source: AzureDiagnostics / W3CIISLog / AppGatewayAccessLog depending
+// on your ingestion. This version targets AppGatewayAccessLog; adjust
+// field names if you're using nginx/IIS CEF ingestion instead.
+
+AppGatewayAccessLog
+| where httpMethod_s == "QUERY"
+| where isempty(contentType_s)
+    or contentType_s has_any ("text/plain", "multipart/form-data")
+| project TimeGenerated, clientIP_s, httpMethod_s, contentType_s, requestUri_s, httpStatus_d
+| extend AlertName = "QUERY_Missing_Or_Invalid_ContentType", Severity = "Low"
