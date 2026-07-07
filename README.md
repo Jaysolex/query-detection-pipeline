@@ -12,7 +12,7 @@ protocol with effectively zero public detection content as of writing, and
 is designed to feed the same scoring/routing pattern used in
 [soar-ir-pipeline](https://github.com/Jaysolex/soar-ir-pipeline).
 
-**See also:** [Architecture](docs/ARCHITECTURE.md) | [Threat Model](docs/THREAT_MODEL.md)
+**See also:** [Architecture](docs/ARCHITECTURE.md) | [Threat Model](docs/THREAT_MODEL.md) | [Deployment Reference](docs/DEPLOYMENT.md)
 
 
 ## What's actually here
