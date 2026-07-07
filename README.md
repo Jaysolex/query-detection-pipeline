@@ -5,15 +5,15 @@ standardized `QUERY` — safe/idempotent like GET, carries a body like POST —
 but existing WAF, cache, and SIEM rulesets were mostly written before it
 existed. This repo closes that gap: it inspects QUERY request bodies the
 same way mature tooling already inspects POST, and adds a behavioral layer
-for payload shapes that don't match a known signature yet.
-
 This extends the signature-tuning methodology from
 
-**See also:** [Architecture](docs/ARCHITECTURE.md) | [Threat Model](docs/THREAT_MODEL.md)
 [Detection-Content](https://github.com/Jaysolex/Detection-Content) to a
 protocol with effectively zero public detection content as of writing, and
 is designed to feed the same scoring/routing pattern used in
 [soar-ir-pipeline](https://github.com/Jaysolex/soar-ir-pipeline).
+
+**See also:** [Architecture](docs/ARCHITECTURE.md) | [Threat Model](docs/THREAT_MODEL.md)
+
 
 ## What's actually here
 
