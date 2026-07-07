@@ -8,6 +8,8 @@ same way mature tooling already inspects POST, and adds a behavioral layer
 for payload shapes that don't match a known signature yet.
 
 This extends the signature-tuning methodology from
+
+**See also:** [Architecture](docs/ARCHITECTURE.md) | [Threat Model](docs/THREAT_MODEL.md)
 [Detection-Content](https://github.com/Jaysolex/Detection-Content) to a
 protocol with effectively zero public detection content as of writing, and
 is designed to feed the same scoring/routing pattern used in
